@@ -15,10 +15,66 @@ import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
+// Helper: build allowed origins list from environment
+const allowedOriginsEnv =
+  process.env.ALLOWED_ORIGINS || process.env.FRONTEND_URL || "";
+const allowedOrigins = allowedOriginsEnv
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+// Simple IP range checker for /24 CIDRs (IPv4 and IPv4-mapped IPv6)
+const allowedIpRangesEnv = process.env.ALLOWED_IP_RANGES || "";
+const allowedIpRanges = allowedIpRangesEnv
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function normalizeIp(ip) {
+  if (!ip) return "";
+  // handle IPv4-mapped IPv6 like ::ffff:74.220.48.12
+  const v4mapped = ip.match(/(?:.*:)?(\d+\.\d+\.\d+\.\d+)$/);
+  if (v4mapped) return v4mapped[1];
+  return ip;
+}
+
+function ipAllowed(ip) {
+  if (!allowedIpRanges.length) return true; // no restriction configured
+  const v4 = normalizeIp(ip);
+  if (!v4) return false;
+  for (const r of allowedIpRanges) {
+    // Support only /24 in this simple implementation
+    const m = r.match(/^(\d+\.\d+\.\d+)\.0\/24$/);
+    if (m) {
+      const prefix = m[1] + ".";
+      if (v4.startsWith(prefix)) return true;
+    } else if (r === v4) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// IP allowlist middleware
+app.use((req, res, next) => {
+  const remote = req.ip || req.connection?.remoteAddress || "";
+  if (!ipAllowed(remote)) {
+    console.warn(`Blocked request from IP ${remote}`);
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  next();
+});
+
+// CORS middleware with support for multiple allowed origins
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || true,
+    origin: (origin, callback) => {
+      // allow requests with no origin (e.g. server-to-server, same-origin)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.length === 0) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error("Not allowed by CORS"), false);
+    },
     credentials: true,
   })
 );
