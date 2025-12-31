@@ -23,6 +23,21 @@ const allowedOrigins = allowedOriginsEnv
   .map((s) => s.trim())
   .filter(Boolean);
 
+// Ensure JWT secret is present (fail fast in production, fallback in dev)
+if (!process.env.JWT_SECRET) {
+  if (process.env.NODE_ENV === "production") {
+    console.error(
+      "Missing required environment variable: JWT_SECRET. Exiting."
+    );
+    process.exit(1);
+  } else {
+    console.warn(
+      "JWT_SECRET is not set — using a development fallback secret. Do not use in production."
+    );
+    process.env.JWT_SECRET = "dev-secret";
+  }
+}
+
 // Simple IP range checker for /24 CIDRs (IPv4 and IPv4-mapped IPv6)
 const allowedIpRangesEnv = process.env.ALLOWED_IP_RANGES || "";
 const allowedIpRanges = allowedIpRangesEnv
